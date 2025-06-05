@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống cảnh báo té ngã</title>
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            padding: 30px;
+            background: linear-gradient(135deg, #fce4ec, #f8bbd0);
+            color: #4a2c40;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            padding: 20px;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 20px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+            padding: 25px;
+            position: relative;
+            overflow: hidden;
+            border: 2px solid #f06292;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: -50px;
+            right: -50px;
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle, #f06292 20%, transparent 70%);
+            opacity: 0.2;
+            transform: rotate(45deg);
+        }
+
+        .card h2 {
+            margin: 0 0 15px;
+            font-size: 1.6em;
+            color: #d81b60;
+            position: relative;
+            z-index: 1;
+            border-bottom: 2px solid #ff80ab;
+            padding-bottom: 8px;
+        }
+
+        .status-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 10px;
+            border: 2px solid #fff;
+        }
+
+        .status-active {
+            background-color: #ff4081;
+        }
+
+        .status-inactive {
+            background-color: #b0bec5;
+        }
+
+        .sensor-data p,
+        .alert-history p {
+            margin: 8px 0;
+            font-size: 1em;
+            line-height: 1.5;
+            background: #fce4ec;
+            padding: 10px;
+            border-radius: 10px;
+            border-left: 4px solid #f06292;
+        }
+
+        .alert-history {
+            max-height: 220px;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+
+        .alert-history::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .alert-history::-webkit-scrollbar-thumb {
+            background: #f06292;
+            border-radius: 10px;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .controls button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 25px;
+            background: linear-gradient(45deg, #f06292, #ff80ab);
+            color: white;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .controls button:hover {
+            background: linear-gradient(45deg, #d81b60, #f06292);
+            transform: scale(1.05);
+        }
+
+        .controls button:disabled {
+            background: #b0bec5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+                padding: 10px;
+            }
+
+            .card {
+                padding: 20px;
+            }
+        }
+
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <div class="card">
+            <h2>Trạng thái hệ thống</h2>
+            <p>
+                <span id="system-status-indicator" class="status-indicator status-inactive"></span>
+                Hệ thống: <strong id="system-status">Đang tải...</strong>
+            </p>
+            <p>Thời gian hoạt động: <strong id="uptime">Đang tải...</strong></p>
+        </div>
+
+        <div class="card">
+            <h2>Thông tin cảm biến</h2>
+            <div class="sensor-data">
+                <p>Cảm biến gia tốc: <strong id="accelerometer">Đang tải...</strong></p>
+                <p>Cảm biến góc nghiêng: <strong id="gyroscope">Đang tải...</strong></p>
+                <p>Tần số lấy mẫu: <strong id="sample-rate">Đang tải...</strong></p>
+                <p>Trạng thái kết nối: <strong id="connection-status">Đang tải...</strong></p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Lịch sử cảnh báo</h2>
+            <div class="alert-history" id="alert-history">
+                <p>Đang tải lịch sử cảnh báo...</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Biểu đồ gia tốc</h2>
+            <canvas id="accelChart"></canvas>
+        </div>
+
+    </div>
+
+    <script>
+        const ws = new WebSocket("ws://192.168.137.219:80/ws");
+        let alertHistory = [];
+
+        ws.onopen = () => {
+            console.log("WebSocket connected");
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            // Cập nhật trạng thái hệ thống
+            document.getElementById("system-status").textContent = data.system_status;
+            document.getElementById("system-status-indicator").className =
+                data.system_status === "Đang hoạt động" ? "status-indicator status-active" : "status-indicator status-inactive";
+            document.getElementById("uptime").textContent = `${data.uptime} giây`;
+
+            // Cập nhật thông tin cảm biến
+            document.getElementById("accelerometer").textContent =
+                `X: ${data.ax.toFixed(2)}, Y: ${data.ay.toFixed(2)}, Z: ${data.az.toFixed(2)} g`;
+            document.getElementById("gyroscope").textContent =
+                `X: ${data.gx.toFixed(2)}, Y: ${data.gy.toFixed(2)}, Z: ${data.gz.toFixed(2)} °/s`;
+            document.getElementById("sample-rate").textContent = `${data.sample_rate} Hz`;
+            document.getElementById("connection-status").textContent = data.connection_status;
+
+            // Cập nhật lịch sử cảnh báo
+            if (data.label) {
+                const timestamp = new Date().toLocaleString("vi-VN");
+                alertHistory.unshift(`[${timestamp}] Trạng thái: ${data.label}, Độ tin cậy: ${(data.confidence * 100).toFixed(2)}%`);
+                if (alertHistory.length > 10) alertHistory.pop(); // Giới hạn 10 mục
+                document.getElementById("alert-history").innerHTML = alertHistory.map(item => `<p>${item}</p>`).join("");
+            }
+        };
+
+        ws.onclose = () => {
+            console.log("WebSocket disconnected");
+            document.getElementById("system-status").textContent = "Ngắt kết nối";
+            document.getElementById("system-status-indicator").className = "status-indicator status-inactive";
+        };
+
+        function controlSystem(action) {
+            // Gửi lệnh điều khiển đến ESP32 qua WebSocket
+            ws.send(JSON.stringify({ command: action }));
+            console.log(`Sent command: ${action}`);
+        }
+
+
+    </script>
+
+    <script>
+        // Cấu hình biểu đồ gia tốc
+        const accelChart = new Chart(document.getElementById("accelChart"), {
+            type: "line",
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: "Gia tốc X",
+                        data: [],
+                        borderColor: "#f06292",
+                        fill: false,
+                    },
+                    {
+                        label: "Gia tốc Y",
+                        data: [],
+                        borderColor: "#ff80ab",
+                        fill: false,
+                    },
+                    {
+                        label: "Gia tốc Z",
+                        data: [],
+                        borderColor: "#d81b60",
+                        fill: false,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: { title: { display: true, text: "Thời gian" } },
+                    y: { title: { display: true, text: "Gia tốc (g)" } },
+                },
+            },
+        });
+
+        // Cập nhật biểu đồ khi nhận dữ liệu WebSocket
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            // Cập nhật trạng thái hệ thống
+            document.getElementById("system-status").textContent = data.system_status;
+            document.getElementById("system-status-indicator").className =
+                data.system_status === "Đang hoạt động" ? "status-indicator status-active" : "status-indicator status-inactive";
+            document.getElementById("uptime").textContent = `${data.uptime} giây`;
+
+            // Cập nhật thông tin cảm biến
+            document.getElementById("accelerometer").textContent =
+                `X: ${data.ax.toFixed(2)}, Y: ${data.ay.toFixed(2)}, Z: ${data.az.toFixed(2)} g`;
+            document.getElementById("gyroscope").textContent =
+                `X: ${data.gx.toFixed(2)}, Y: ${data.gy.toFixed(2)}, Z: ${data.gz.toFixed(2)} °/s`;
+            document.getElementById("sample-rate").textContent = `${data.sample_rate} Hz`;
+            document.getElementById("connection-status").textContent = data.connection_status;
+
+            // Cập nhật lịch sử cảnh báo
+            if (data.label) {
+                const timestamp = new Date().toLocaleString("vi-VN");
+                alertHistory.unshift(`[${timestamp}] Trạng thái: ${data.label}, Độ tin cậy: ${(data.confidence * 100).toFixed(2)}%`);
+                if (alertHistory.length > 50) alertHistory.pop();
+                document.getElementById("alert-history").innerHTML = alertHistory.map(item => `<p>${item}</p>`).join("");
+            }
+
+            // Cập nhật biểu đồ
+            accelChart.data.labels.push(new Date().toLocaleTimeString("vi-VN"));
+            accelChart.data.datasets[0].data.push(data.ax);
+            accelChart.data.datasets[1].data.push(data.ay);
+            accelChart.data.datasets[2].data.push(data.az);
+            if (accelChart.data.labels.length > 100) {
+                accelChart.data.labels.shift();
+                accelChart.data.datasets.forEach(dataset => dataset.data.shift());
+            }
+            accelChart.update();
+        };
+    </script>
+</body>
+
+</html>
